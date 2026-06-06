@@ -1,0 +1,1246 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RepoPulse AI — Co-Maintainer Dashboard</title>
+
+  <!-- Tailwind CSS v3 CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand:   { 50:'#f0fdf9', 300:'#6ee7b7', 400:'#34d399', 500:'#10b981', 600:'#059669', 900:'#064e3b' },
+            surface: { 900:'#0d1117', 800:'#161b22', 700:'#21262d', 600:'#30363d', 500:'#484f58' }
+          },
+          fontFamily: { mono: ['"JetBrains Mono"', '"Fira Code"', 'monospace'] },
+          keyframes: {
+            fadeSlideIn:  { '0%': { opacity:'0', transform:'translateY(8px)' }, '100%': { opacity:'1', transform:'translateY(0)' } },
+            shimmer:      { '0%': { backgroundPosition:'-200% 0' }, '100%': { backgroundPosition:'200% 0' } },
+            statusPulse:  { '0%,100%': { opacity:'1', boxShadow:'0 0 0 0 rgba(52,211,153,.5)' }, '50%': { opacity:'.8', boxShadow:'0 0 0 6px rgba(52,211,153,0)' } },
+            blink:        { '0%,100%': { opacity:'1' }, '50%': { opacity:'0' } },
+            scoreCount:   { from: { strokeDashoffset:'264' }, to: {} },
+          },
+          animation: {
+            fadeSlideIn: 'fadeSlideIn .35s ease both',
+            shimmer:     'shimmer 1.6s linear infinite',
+            statusPulse: 'statusPulse 2s ease-in-out infinite',
+            blink:       'blink 1s step-end infinite',
+            scoreCount:  'scoreCount 1.2s cubic-bezier(.4,0,.2,1) both',
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- marked.js — lightweight Markdown renderer (no build step needed) -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
+
+  <style>
+    /* ── Base ── */
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: 'JetBrains Mono', monospace; }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width:5px; height:5px; }
+    ::-webkit-scrollbar-track { background:#161b22; }
+    ::-webkit-scrollbar-thumb { background:#30363d; border-radius:3px; }
+    ::-webkit-scrollbar-thumb:hover { background:#484f58; }
+
+    /* ── Card glow on hover ── */
+    .card-glow { transition: box-shadow .2s, border-color .2s; }
+    .card-glow:hover { box-shadow: 0 0 0 1px rgba(52,211,153,.25), 0 4px 28px rgba(52,211,153,.07); border-color: rgba(52,211,153,.3) !important; }
+
+    /* ── Active nav ── */
+    .nav-active { border-left: 2px solid #34d399; background: #21262d; color: #fff; }
+
+    /* ── Diff coloring ── */
+    .diff-add  { color: #34d399; }
+    .diff-rem  { color: #f87171; }
+    .diff-meta { color: #818cf8; }
+    .diff-ctx  { color: #6b7280; }
+
+    /* ── Skeleton shimmer ── */
+    .skeleton {
+      background: linear-gradient(90deg, #21262d 25%, #2d333b 50%, #21262d 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.6s linear infinite;
+      border-radius: 6px;
+    }
+
+    /* ── Tab system ── */
+    .tab-btn { transition: color .15s, border-color .15s; }
+    .tab-btn.active { color: #34d399; border-bottom-color: #34d399; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; animation: fadeSlideIn .3s ease both; }
+
+    /* ── Chat bubbles ── */
+    .chat-msg { animation: fadeSlideIn .3s ease both; }
+    .msg-user .bubble {
+      background: linear-gradient(135deg, #059669 0%, #064e3b 100%);
+      color: #fff; border-radius: 18px 18px 4px 18px;
+    }
+    .msg-bot .bubble {
+      background: #21262d; border: 1px solid #30363d;
+      color: #d1d5db; border-radius: 18px 18px 18px 4px;
+    }
+    .msg-bot .bubble h1,.msg-bot .bubble h2,.msg-bot .bubble h3 { color:#e5e7eb; font-size:.85em; margin:.5em 0 .25em; }
+    .msg-bot .bubble p  { margin:.3em 0; line-height:1.6; }
+    .msg-bot .bubble code { background:#161b22; padding:1px 5px; border-radius:4px; font-size:.8em; color:#34d399; }
+    .msg-bot .bubble pre { background:#0d1117; padding:10px 12px; border-radius:8px; overflow-x:auto; margin:.5em 0; font-size:.75em; border:1px solid #30363d; }
+    .msg-bot .bubble ul,.msg-bot .bubble ol { padding-left:1.2em; margin:.3em 0; }
+    .msg-bot .bubble li { margin:.15em 0; }
+    .msg-bot .bubble strong { color:#f9fafb; }
+
+    /* ── Thinking dots ── */
+    .thinking-dot { display:inline-block; animation: blink 1.2s step-end infinite; }
+    .thinking-dot:nth-child(2) { animation-delay:.2s; }
+    .thinking-dot:nth-child(3) { animation-delay:.4s; }
+
+    /* ── PR accordion ── */
+    .pr-body { max-height: 0; overflow: hidden; transition: max-height .4s cubic-bezier(.4,0,.2,1); }
+    .pr-body.open { max-height: 900px; }
+    .pr-chevron { transition: transform .3s ease; }
+    .pr-chevron.open { transform: rotate(180deg); }
+
+    /* ── Score ring animation ── */
+    .score-ring circle.fill { animation: scoreCount 1.2s cubic-bezier(.4,0,.2,1) both; }
+
+    /* ── Sidebar mobile overlay ── */
+    #sidebar-overlay { display:none; }
+    @media(max-width:1023px) {
+      #sidebar { transform: translateX(-100%); transition: transform .25s ease; position:fixed; z-index:50; }
+      #sidebar.open { transform: translateX(0); }
+      #sidebar-overlay.show { display:block; }
+    }
+
+    /* ── Activity bar micro chart ── */
+    .bar-chart-bar { transition: height .6s cubic-bezier(.4,0,.2,1); }
+
+    /* ── KPI counter animation ── */
+    .kpi-num { transition: opacity .4s; }
+
+    /* ── New item flash ── */
+    @keyframes newFlash {
+      0%   { background-color: rgba(52,211,153,.15); }
+      100% { background-color: transparent; }
+    }
+    .new-flash { animation: newFlash 2s ease forwards; }
+  </style>
+</head>
+
+<body class="bg-surface-900 text-gray-300 min-h-screen flex">
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!--  MOBILE OVERLAY                                                        -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div id="sidebar-overlay" class="fixed inset-0 bg-black/60 z-40" onclick="closeSidebar()"></div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!--  SIDEBAR                                                               -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<aside id="sidebar" class="w-64 flex-shrink-0 bg-surface-800 border-r border-surface-600 flex flex-col h-screen lg:sticky top-0">
+
+  <!-- Logo -->
+  <div class="px-5 py-5 border-b border-surface-600">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-brand-600 flex items-center justify-center shadow-lg shadow-brand-900/50">
+        <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+        </svg>
+      </div>
+      <div>
+        <p class="text-white font-semibold text-sm leading-tight">RepoPulse AI</p>
+        <p class="text-brand-400 text-xs">Co-Maintainer v2.0</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI Engine status -->
+  <div class="px-5 py-3 border-b border-surface-600">
+    <div class="flex items-center gap-2 text-xs">
+      <span class="w-2 h-2 rounded-full bg-brand-400 inline-block" style="animation:statusPulse 2s ease-in-out infinite"></span>
+      <span class="text-gray-400">AI Engine</span>
+      <span class="ml-auto text-brand-400 font-semibold">Online</span>
+    </div>
+    <div class="mt-2 text-xs text-gray-600" id="rag-status-sidebar">
+      RAG: <span id="rag-chunks-sidebar" class="text-gray-500">–</span> chunks
+    </div>
+  </div>
+
+  <!-- Nav -->
+  <nav class="flex-1 overflow-y-auto py-4 px-3 space-y-1">
+    <p class="px-2 mb-2 text-xs font-semibold text-surface-500 uppercase tracking-widest">Main</p>
+
+    <button onclick="showTab('dashboard')" id="nav-dashboard"
+      class="nav-btn nav-active w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors">
+      <svg class="w-4 h-4 text-brand-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+      Dashboard
+    </button>
+
+    <button onclick="showTab('reviews')" id="nav-reviews"
+      class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-gray-400 hover:text-white hover:bg-surface-700 text-sm transition-colors">
+      <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+      PR Reviews
+      <span id="pr-badge" class="ml-auto bg-brand-900 text-brand-400 text-xs font-medium px-1.5 py-0.5 rounded-full">3</span>
+    </button>
+
+    <button onclick="showTab('docbot')" id="nav-docbot"
+      class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-gray-400 hover:text-white hover:bg-surface-700 text-sm transition-colors">
+      <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
+      Doc-Bot
+      <span class="ml-auto text-xs bg-purple-900/60 text-purple-400 px-1.5 py-0.5 rounded-full">AI</span>
+    </button>
+
+    <p class="px-2 pt-4 pb-2 text-xs font-semibold text-surface-500 uppercase tracking-widest">System</p>
+
+    <button onclick="triggerIngest()"
+      class="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-gray-400 hover:text-white hover:bg-surface-700 text-sm transition-colors">
+      <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"/></svg>
+      Sync Knowledge Base
+    </button>
+
+    <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-md text-gray-400 hover:text-white hover:bg-surface-700 text-sm transition-colors">
+      <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+      Webhooks
+    </a>
+  </nav>
+
+  <!-- User -->
+  <div class="px-5 py-4 border-t border-surface-600">
+    <div class="flex items-center gap-3">
+      <img src="https://ui-avatars.com/api/?name=Dev&background=059669&color=fff&size=32"
+           class="w-8 h-8 rounded-full ring-2 ring-surface-500" alt="avatar" />
+      <div class="min-w-0">
+        <p class="text-white text-xs font-medium truncate">developer</p>
+        <p class="text-gray-500 text-xs">github.com</p>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!--  MAIN                                                                  -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div class="flex-1 flex flex-col min-h-screen overflow-y-auto">
+
+  <!-- Top bar -->
+  <header class="sticky top-0 z-30 bg-surface-800/90 backdrop-blur-md border-b border-surface-600 px-4 lg:px-6 py-3.5">
+    <div class="flex items-center justify-between gap-3">
+      <!-- Mobile hamburger -->
+      <button class="lg:hidden text-gray-400 hover:text-white p-1" onclick="openSidebar()">
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+
+      <div>
+        <h1 class="text-white font-semibold text-sm" id="page-title">Overview Dashboard</h1>
+        <p class="text-gray-500 text-xs mt-0.5">
+          <span class="text-brand-400 font-medium">acme-org/core-api</span>
+          <span id="last-sync-label"> · Last sync <span id="last-sync-time">just now</span></span>
+        </p>
+      </div>
+
+      <div class="flex items-center gap-2 ml-auto">
+        <div class="hidden sm:flex items-center gap-1.5 bg-surface-700 border border-surface-600 rounded-full px-3 py-1 text-xs text-gray-400">
+          <span class="w-1.5 h-1.5 rounded-full bg-brand-400" style="animation:statusPulse 2s ease-in-out infinite"></span>
+          Webhook live
+        </div>
+        <button onclick="triggerDemoReview()"
+          class="flex items-center gap-1.5 bg-purple-700 hover:bg-purple-600 text-white text-xs font-medium px-3 py-1.5 rounded-md transition-colors"
+          title="Simulate a PR review for demo purposes">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          <span class="hidden sm:inline">Demo Review</span>
+        </button>
+        <button onclick="refreshAll()" id="sync-btn"
+          class="flex items-center gap-1.5 bg-brand-500 hover:bg-brand-600 text-white text-xs font-medium px-3 py-1.5 rounded-md transition-colors">
+          <svg id="sync-icon" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          <span class="hidden sm:inline">Sync</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ──────────────────────────────────────────────────────────────────── -->
+  <!--  TAB PANELS                                                         -->
+  <!-- ──────────────────────────────────────────────────────────────────── -->
+  <main class="flex-1 p-4 lg:p-6">
+
+    <!-- ================================================================ -->
+    <!--  TAB: DASHBOARD                                                   -->
+    <!-- ================================================================ -->
+    <div id="tab-dashboard" class="tab-panel active space-y-6">
+
+      <!-- KPI Cards -->
+      <section>
+        <h2 class="text-xs font-semibold text-surface-500 uppercase tracking-widest mb-3">Repository Stats</h2>
+        <div class="grid grid-cols-2 xl:grid-cols-4 gap-3 lg:gap-4">
+
+          <div class="card-glow bg-surface-800 border border-surface-600 rounded-xl p-4">
+            <div class="flex items-start justify-between">
+              <div>
+                <p class="text-xs text-gray-500 mb-1">Total Commits</p>
+                <p class="text-2xl font-bold text-white kpi-num" data-stat="commits">–</p>
+                <p class="text-xs text-brand-400 mt-1" data-stat-delta="commits">–</p>
+              </div>
+              <div class="w-9 h-9 rounded-xl bg-surface-700 flex items-center justify-center flex-shrink-0">
+                <svg class="w-4 h-4 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              </div>
+            </div>
+            <!-- Mini spark bars -->
+            <div class="flex items-end gap-0.5 mt-3 h-6" id="spark-commits">
+              <div class="skeleton flex-1 h-2 rounded-sm"></div>
+              <div class="skeleton flex-1 h-4 rounded-sm"></div>
+              <div class="skeleton flex-1 h-3 rounded-sm"></div>
+              <div class="skeleton flex-1 h-5 rounded-sm"></div>
+              <div class="skeleton flex-1 h-4 rounded-sm"></div>
+              <div class="skeleton flex-1 h-6 rounded-sm"></div>
+              <div class="skeleton flex-1 h-5 rounded-sm"></div>
+            </div>
+          </div>
+
+          <div class="card-glow bg-surface-800 border border-surface-600 rounded-xl p-4">
+            <div class="flex items-start justify-between">
+              <div>
+                <p class="text-xs text-gray-500 mb-1">Open Issues</p>
+                <p class="text-2xl font-bold text-white kpi-num" data-stat="open_issues">–</p>
+                <p class="text-xs text-yellow-400 mt-1" data-stat-delta="open_issues">–</p>
+              </div>
+              <div class="w-9 h-9 rounded-xl bg-surface-700 flex items-center justify-center flex-shrink-0">
+                <svg class="w-4 h-4 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+              </div>
+            </div>
+            <div class="flex items-end gap-0.5 mt-3 h-6" id="spark-issues">
+              <div class="skeleton flex-1 h-3 rounded-sm"></div><div class="skeleton flex-1 h-2 rounded-sm"></div>
+              <div class="skeleton flex-1 h-5 rounded-sm"></div><div class="skeleton flex-1 h-4 rounded-sm"></div>
+              <div class="skeleton flex-1 h-3 rounded-sm"></div><div class="skeleton flex-1 h-6 rounded-sm"></div>
+              <div class="skeleton flex-1 h-5 rounded-sm"></div>
+            </div>
+          </div>
+
+          <div class="card-glow bg-surface-800 border border-surface-600 rounded-xl p-4">
+            <div class="flex items-start justify-between">
+              <div>
+                <p class="text-xs text-gray-500 mb-1">Contributors</p>
+                <p class="text-2xl font-bold text-white kpi-num" data-stat="contributors">–</p>
+                <p class="text-xs text-brand-400 mt-1" data-stat-delta="contributors">–</p>
+              </div>
+              <div class="w-9 h-9 rounded-xl bg-surface-700 flex items-center justify-center flex-shrink-0">
+                <svg class="w-4 h-4 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+              </div>
+            </div>
+            <div class="flex items-end gap-0.5 mt-3 h-6" id="spark-contrib">
+              <div class="skeleton flex-1 h-4 rounded-sm"></div><div class="skeleton flex-1 h-3 rounded-sm"></div>
+              <div class="skeleton flex-1 h-2 rounded-sm"></div><div class="skeleton flex-1 h-5 rounded-sm"></div>
+              <div class="skeleton flex-1 h-4 rounded-sm"></div><div class="skeleton flex-1 h-6 rounded-sm"></div>
+              <div class="skeleton flex-1 h-5 rounded-sm"></div>
+            </div>
+          </div>
+
+          <div class="card-glow bg-surface-800 border border-surface-600 rounded-xl p-4">
+            <div class="flex items-start justify-between">
+              <div>
+                <p class="text-xs text-gray-500 mb-1">AI Reviews Run</p>
+                <p class="text-2xl font-bold text-white kpi-num" data-stat="ai_reviews">–</p>
+                <p class="text-xs text-purple-400 mt-1" data-stat-delta="ai_reviews">–</p>
+              </div>
+              <div class="w-9 h-9 rounded-xl bg-surface-700 flex items-center justify-center flex-shrink-0">
+                <svg class="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+              </div>
+            </div>
+            <div class="flex items-end gap-0.5 mt-3 h-6" id="spark-reviews">
+              <div class="skeleton flex-1 h-2 rounded-sm"></div><div class="skeleton flex-1 h-5 rounded-sm"></div>
+              <div class="skeleton flex-1 h-3 rounded-sm"></div><div class="skeleton flex-1 h-6 rounded-sm"></div>
+              <div class="skeleton flex-1 h-4 rounded-sm"></div><div class="skeleton flex-1 h-5 rounded-sm"></div>
+              <div class="skeleton flex-1 h-3 rounded-sm"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Doc Health + Activity Log -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
+
+        <!-- Doc Health (1/3) -->
+        <section>
+          <h2 class="text-xs font-semibold text-surface-500 uppercase tracking-widest mb-3">Documentation Health</h2>
+          <div class="card-glow bg-surface-800 border border-surface-600 rounded-xl p-5">
+            <div class="flex flex-col items-center py-2">
+              <!-- Animated SVG ring -->
+              <div class="relative w-32 h-32">
+                <svg class="w-32 h-32 -rotate-90" viewBox="0 0 100 100">
+                  <circle cx="50" cy="50" r="42" fill="none" stroke="#21262d" stroke-width="9"/>
+                  <circle id="doc-score-ring" cx="50" cy="50" r="42" fill="none" stroke="#10b981" stroke-width="9"
+                    stroke-dasharray="0 264" stroke-linecap="round"
+                    style="transition: stroke-dasharray 1.2s cubic-bezier(.4,0,.2,1)"/>
+                </svg>
+                <div class="absolute inset-0 flex flex-col items-center justify-center">
+                  <span id="doc-score-num" class="text-3xl font-bold text-white">–</span>
+                  <span class="text-xs text-gray-500">/ 100</span>
+                </div>
+              </div>
+              <p id="doc-score-label" class="text-sm text-white font-semibold mt-3">Loading…</p>
+              <p id="doc-score-sub" class="text-xs text-gray-500 mt-1 text-center">AI analysis of repo files</p>
+            </div>
+            <!-- Category bars -->
+            <div id="doc-breakdown" class="space-y-2.5 mt-5">
+              <div class="skeleton h-3 w-full"></div>
+              <div class="skeleton h-3 w-4/5"></div>
+              <div class="skeleton h-3 w-3/4"></div>
+              <div class="skeleton h-3 w-full"></div>
+            </div>
+            <!-- RAG index pill -->
+            <div class="mt-4 bg-surface-700 rounded-lg px-3 py-2.5 flex items-center justify-between">
+              <div class="text-xs text-gray-400">Knowledge Base</div>
+              <div class="flex items-center gap-1.5 text-xs">
+                <span id="rag-chunks-card" class="text-brand-400 font-semibold">–</span>
+                <span class="text-gray-500">chunks</span>
+                <span class="mx-1 text-surface-500">·</span>
+                <span id="rag-files-card" class="text-brand-400 font-semibold">–</span>
+                <span class="text-gray-500">files</span>
+              </div>
+            </div>
+            <button onclick="triggerIngest()"
+              class="mt-3 w-full text-xs text-brand-400 border border-brand-900 hover:bg-brand-900/40 rounded-lg py-2 transition-colors">
+              Rebuild Index →
+            </button>
+          </div>
+        </section>
+
+        <!-- Contributor Activity Log (2/3) -->
+        <section class="lg:col-span-2">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-xs font-semibold text-surface-500 uppercase tracking-widest">Contributor Activity</h2>
+            <span class="text-xs text-gray-500">Live feed</span>
+          </div>
+          <div class="card-glow bg-surface-800 border border-surface-600 rounded-xl overflow-hidden">
+            <ul id="activity-log" class="divide-y divide-surface-600 max-h-80 overflow-y-auto">
+              <!-- Skeleton placeholders -->
+              <li class="flex items-start gap-3 px-4 py-3">
+                <div class="skeleton w-8 h-8 rounded-full flex-shrink-0"></div>
+                <div class="flex-1 space-y-1.5 pt-1"><div class="skeleton h-3 w-3/4"></div><div class="skeleton h-2.5 w-1/2"></div></div>
+              </li>
+              <li class="flex items-start gap-3 px-4 py-3">
+                <div class="skeleton w-8 h-8 rounded-full flex-shrink-0"></div>
+                <div class="flex-1 space-y-1.5 pt-1"><div class="skeleton h-3 w-2/3"></div><div class="skeleton h-2.5 w-2/5"></div></div>
+              </li>
+              <li class="flex items-start gap-3 px-4 py-3">
+                <div class="skeleton w-8 h-8 rounded-full flex-shrink-0"></div>
+                <div class="flex-1 space-y-1.5 pt-1"><div class="skeleton h-3 w-4/5"></div><div class="skeleton h-2.5 w-1/3"></div></div>
+              </li>
+            </ul>
+          </div>
+        </section>
+      </div>
+    </div><!-- /tab-dashboard -->
+
+    <!-- ================================================================ -->
+    <!--  TAB: PR REVIEWS                                                  -->
+    <!-- ================================================================ -->
+    <div id="tab-reviews" class="tab-panel space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-xs font-semibold text-surface-500 uppercase tracking-widest">AI-Reviewed Pull Requests</h2>
+        <button onclick="triggerDemoReview()"
+          class="flex items-center gap-1.5 text-xs bg-purple-900/50 hover:bg-purple-800/60 text-purple-300 border border-purple-800/60 px-3 py-1.5 rounded-md transition-colors">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          Trigger Demo Review
+        </button>
+      </div>
+      <!-- PR list — populated by JS -->
+      <div id="pr-review-list" class="space-y-3">
+        <div class="skeleton h-16 w-full rounded-xl"></div>
+        <div class="skeleton h-16 w-full rounded-xl"></div>
+        <div class="skeleton h-16 w-full rounded-xl"></div>
+      </div>
+    </div><!-- /tab-reviews -->
+
+    <!-- ================================================================ -->
+    <!--  TAB: DOC-BOT CHAT                                               -->
+    <!-- ================================================================ -->
+    <div id="tab-docbot" class="tab-panel flex flex-col h-full">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="text-white font-semibold text-sm">Doc-Bot — Codebase Assistant</h2>
+          <p class="text-xs text-gray-500 mt-0.5">Powered by Gemini + RAG · Ask anything about this repository</p>
+        </div>
+        <div id="docbot-status" class="flex items-center gap-1.5 text-xs text-gray-500 bg-surface-800 border border-surface-600 rounded-full px-3 py-1">
+          <span class="w-1.5 h-1.5 rounded-full bg-brand-400" style="animation:statusPulse 2s ease-in-out infinite"></span>
+          Ready
+        </div>
+      </div>
+
+      <!-- Chat window -->
+      <div class="flex flex-col bg-surface-800 border border-surface-600 rounded-2xl overflow-hidden flex-1" style="min-height:500px; max-height:72vh">
+
+        <!-- Messages area -->
+        <div id="chat-messages" class="flex-1 overflow-y-auto p-4 lg:p-6 space-y-4">
+          <!-- Welcome message -->
+          <div class="chat-msg msg-bot flex items-start gap-3">
+            <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-500 to-brand-600 flex-shrink-0 flex items-center justify-center text-white text-xs font-bold">AI</div>
+            <div class="bubble px-4 py-3 max-w-2xl text-xs leading-relaxed">
+              <p class="text-brand-400 font-semibold mb-1">RepoPulse Doc-Bot</p>
+              <p>Hi! I'm your AI-powered codebase assistant. I've ingested this repository's source code and documentation.</p>
+              <p class="mt-1.5">Ask me anything — like:</p>
+              <ul class="mt-1 space-y-0.5 text-gray-400">
+                <li>→ "How does the webhook signature verification work?"</li>
+                <li>→ "What does the RAG ingestion pipeline do?"</li>
+                <li>→ "Explain the PR review flow end-to-end"</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- Suggested questions -->
+        <div id="chat-suggestions" class="px-4 py-3 border-t border-surface-600 flex flex-wrap gap-2">
+          <button onclick="sendSuggestion(this)" class="text-xs bg-surface-700 hover:bg-surface-600 text-gray-300 border border-surface-600 px-2.5 py-1.5 rounded-full transition-colors">How does webhook auth work?</button>
+          <button onclick="sendSuggestion(this)" class="text-xs bg-surface-700 hover:bg-surface-600 text-gray-300 border border-surface-600 px-2.5 py-1.5 rounded-full transition-colors">Explain the RAG pipeline</button>
+          <button onclick="sendSuggestion(this)" class="text-xs bg-surface-700 hover:bg-surface-600 text-gray-300 border border-surface-600 px-2.5 py-1.5 rounded-full transition-colors">What is AIEngine?</button>
+          <button onclick="sendSuggestion(this)" class="text-xs bg-surface-700 hover:bg-surface-600 text-gray-300 border border-surface-600 px-2.5 py-1.5 rounded-full transition-colors">How are PRs reviewed?</button>
+        </div>
+
+        <!-- Input bar -->
+        <div class="px-4 py-3 border-t border-surface-600 bg-surface-900/50">
+          <div class="flex items-end gap-2">
+            <div class="flex-1 relative">
+              <textarea id="chat-input"
+                rows="1"
+                placeholder="Ask about this codebase…"
+                class="w-full bg-surface-700 border border-surface-600 rounded-xl text-gray-200 placeholder-gray-600 text-xs px-4 py-3 pr-10 resize-none focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30 transition-all"
+                style="max-height:120px; overflow-y:auto"
+                onkeydown="handleChatKey(event)"
+                oninput="autoResize(this)">
+              </textarea>
+            </div>
+            <button id="chat-send-btn" onclick="sendChatMessage()"
+              class="flex-shrink-0 w-10 h-10 bg-brand-500 hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl flex items-center justify-center transition-colors">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+            </button>
+          </div>
+          <p class="text-xs text-gray-600 mt-2 px-1">Enter to send · Shift+Enter for newline · Sources shown below each answer</p>
+        </div>
+      </div>
+    </div><!-- /tab-docbot -->
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="px-6 py-3 border-t border-surface-600 flex items-center justify-between text-xs text-gray-600">
+    <span>RepoPulse AI · Phase 3 · Open Source Hackathon 2026</span>
+    <span>Gemini 1.5 Pro · Flask · Tailwind</span>
+  </footer>
+</div><!-- /main -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!--  TOAST NOTIFICATION                                                    -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div id="toast" class="fixed bottom-5 right-5 z-50 flex items-center gap-3 bg-surface-700 border border-surface-600
+     text-white text-xs px-4 py-3 rounded-xl shadow-2xl opacity-0 translate-y-2 transition-all duration-300 pointer-events-none max-w-xs">
+  <span id="toast-icon" class="flex-shrink-0 w-4 h-4"></span>
+  <span id="toast-msg">–</span>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!--  JAVASCRIPT                                                            -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<script>
+'use strict';
+
+// ──────────────────────────────────────────────────────────────────────────
+//  CONFIG
+//  All paths are RELATIVE — no hardcoded host/port.
+//  This means the app works identically on:
+//    • http://127.0.0.1:5000   (local dev)
+//    • http://192.168.x.x:5000 (LAN / judging demo)
+//    • https://your-domain.com (production)
+// ──────────────────────────────────────────────────────────────────────────
+const API = {
+  stats:        '/api/stats',
+  reviews:      '/api/reviews',
+  chat:         '/api/chat',
+  ingest:       '/api/ingest',
+  ingestStatus: '/api/ingest/status',
+  demoReview:   '/api/demo-review',
+};
+
+// Colour map for score bands
+const SCORE_COLOR = s => s >= 80 ? '#34d399' : s >= 60 ? '#eab308' : '#f87171';
+const SCORE_LABEL = s => s >= 80 ? '🟢 Approved'  : s >= 60 ? '🟡 Reviewing' : '🔴 Needs Work';
+const STATUS_CSS  = {
+  approved:   'bg-brand-900/40 text-brand-400',
+  reviewing:  'bg-yellow-900/40 text-yellow-400',
+  needs_work: 'bg-red-900/40 text-red-400',
+};
+
+// ──────────────────────────────────────────────────────────────────────────
+//  SIDEBAR (mobile)
+// ──────────────────────────────────────────────────────────────────────────
+function openSidebar()  { document.getElementById('sidebar').classList.add('open'); document.getElementById('sidebar-overlay').classList.add('show'); }
+function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebar-overlay').classList.remove('show'); }
+
+// ──────────────────────────────────────────────────────────────────────────
+//  TAB NAVIGATION
+// ──────────────────────────────────────────────────────────────────────────
+const TAB_TITLES = { dashboard:'Overview Dashboard', reviews:'PR Review Feed', docbot:'Doc-Bot Assistant' };
+
+function showTab(name) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => { b.classList.remove('nav-active'); b.classList.add('text-gray-400'); });
+  document.getElementById('tab-' + name).classList.add('active');
+  const btn = document.getElementById('nav-' + name);
+  btn.classList.add('nav-active');
+  btn.classList.remove('text-gray-400');
+  document.getElementById('page-title').textContent = TAB_TITLES[name] || name;
+  closeSidebar();
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+//  TOAST
+// ──────────────────────────────────────────────────────────────────────────
+let _toastTimer;
+function showToast(msg, type = 'info') {
+  const el = document.getElementById('toast');
+  const icons = { success: '✅', error: '❌', info: 'ℹ️', loading: '⏳' };
+  document.getElementById('toast-msg').textContent = msg;
+  document.getElementById('toast-icon').textContent = icons[type] || '•';
+  el.style.opacity = '1'; el.style.transform = 'translateY(0)';
+  clearTimeout(_toastTimer);
+  if (type !== 'loading') {
+    _toastTimer = setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translateY(8px)'; }, 3500);
+  }
+}
+function hideToast() { const el = document.getElementById('toast'); el.style.opacity = '0'; el.style.transform = 'translateY(8px)'; }
+
+// ──────────────────────────────────────────────────────────────────────────
+//  API HELPERS
+//
+//  apiFetch() wraps every fetch() call with two distinct error layers:
+//
+//  1. NetworkError  — fetch() itself threw (server down, DNS failure,
+//                     CORS block, device offline). We detect this by
+//                     catching a TypeError and re-throwing as a plain
+//                     Error with a human-readable prefix so every caller
+//                     can show "⚠️ Network Error: …" instead of a raw
+//                     "Failed to fetch" browser string.
+//
+//  2. HTTPError     — the server responded but with a non-2xx status.
+//                     We try to parse the JSON body for an `error` key,
+//                     then fall back to the HTTP status text.
+// ──────────────────────────────────────────────────────────────────────────
+async function apiFetch(url, options = {}) {
+  const defaults = { headers: { 'Content-Type': 'application/json' } };
+
+  let response;
+  try {
+    response = await fetch(url, { ...defaults, ...options });
+  } catch (networkErr) {
+    // fetch() itself failed — server unreachable, network down, or
+    // (in older browsers) a CORS preflight block.
+    console.error(`[apiFetch] Network error on ${url}:`, networkErr);
+    throw new Error(`Network Error: Could not reach the server. Is Flask running?`);
+  }
+
+  if (!response.ok) {
+    // Server is up but returned an error status code
+    let serverMessage = `HTTP ${response.status} ${response.statusText}`;
+    try {
+      const body = await response.json();
+      if (body.error) serverMessage = body.error;
+      else if (body.hint) serverMessage = `${body.error || serverMessage} — ${body.hint}`;
+    } catch (_) {
+      // Response body wasn't JSON — keep the status string
+    }
+    console.error(`[apiFetch] HTTP error on ${url}: ${serverMessage}`);
+    throw new Error(serverMessage);
+  }
+
+  return response.json();
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+//  STATS — /api/stats
+// ──────────────────────────────────────────────────────────────────────────
+async function loadStats() {
+  try {
+    const data = await apiFetch(API.stats);
+
+    // KPI cards
+    const statKeys = ['commits', 'open_issues', 'contributors', 'ai_reviews'];
+    statKeys.forEach(key => {
+      const raw = data[key];
+      if (!raw) return;
+      const numEl   = document.querySelector(`[data-stat="${key}"]`);
+      const deltaEl = document.querySelector(`[data-stat-delta="${key}"]`);
+      if (numEl)   { numEl.textContent = raw.value.toLocaleString(); numEl.style.opacity = '1'; }
+      if (deltaEl) deltaEl.textContent = raw.delta;
+    });
+
+    // Replace skeleton spark bars with real animated bars
+    const heights = [30, 55, 40, 70, 60, 90, 75];
+    ['commits','issues','contrib','reviews'].forEach(id => {
+      const el = document.getElementById('spark-' + id);
+      if (!el) return;
+      el.innerHTML = heights.map(h =>
+        `<div class="flex-1 rounded-sm bg-brand-500/40" style="height:${h}%; transition:height .6s ease"></div>`
+      ).join('');
+    });
+
+    // Doc health ring
+    const dh = data.doc_health;
+    if (dh) renderDocHealth(dh);
+
+    // RAG index
+    if (data.rag_index) updateRagDisplay(data.rag_index);
+
+    document.getElementById('last-sync-time').textContent = 'just now';
+
+  } catch (err) {
+    console.error('loadStats failed:', err);
+
+    // Show error state inside each KPI card number — tells the user exactly
+    // what broke without needing to open DevTools.
+    const isNetwork = err.message.startsWith('Network Error');
+    const shortMsg  = isNetwork ? 'offline' : 'error';
+    document.querySelectorAll('.kpi-num').forEach(el => {
+      el.textContent  = shortMsg;
+      el.style.fontSize = '0.75rem';
+      el.style.color  = '#f87171';
+    });
+
+    // Update the doc health label
+    const label = document.getElementById('doc-score-label');
+    if (label) { label.textContent = 'Unavailable'; label.style.color = '#f87171'; }
+
+    // Clear skeleton breakdown bars with an error pill
+    const breakdown = document.getElementById('doc-breakdown');
+    if (breakdown) {
+      breakdown.innerHTML = `
+        <div class="flex items-center gap-2 text-xs text-red-400 bg-red-900/20 border border-red-900/40 rounded-lg px-3 py-2">
+          <span>⚠️</span>
+          <span>${escHtml(err.message)}</span>
+        </div>`;
+    }
+
+    showToast(err.message, 'error');
+  }
+}
+
+function renderDocHealth(dh) {
+  // Animate ring
+  const circumference = 2 * Math.PI * 42; // ≈ 263.9
+  const filled = (dh.score / 100) * circumference;
+  const ring = document.getElementById('doc-score-ring');
+  if (ring) {
+    ring.style.stroke = SCORE_COLOR(dh.score);
+    setTimeout(() => { ring.style.strokeDasharray = `${filled} ${circumference - filled}`; }, 100);
+  }
+  const numEl = document.getElementById('doc-score-num');
+  if (numEl) animateCount(numEl, 0, dh.score, 1200);
+  const label = document.getElementById('doc-score-label');
+  if (label) { label.textContent = dh.label; label.style.color = SCORE_COLOR(dh.score); }
+
+  // Breakdown bars
+  const container = document.getElementById('doc-breakdown');
+  if (!container || !dh.breakdown) return;
+  container.innerHTML = Object.entries(dh.breakdown).map(([name, pct]) => {
+    const color = pct >= 80 ? '#34d399' : pct >= 60 ? '#eab308' : '#f87171';
+    const textColor = pct >= 80 ? 'text-brand-400' : pct >= 60 ? 'text-yellow-400' : 'text-red-400';
+    return `
+      <div>
+        <div class="flex justify-between text-xs text-gray-400 mb-1">
+          <span>${name}</span>
+          <span class="${textColor} font-semibold">${pct}%</span>
+        </div>
+        <div class="h-1.5 bg-surface-600 rounded-full overflow-hidden">
+          <div class="h-full rounded-full transition-all duration-1000"
+               style="width:0%; background:${color}"
+               data-target="${pct}"></div>
+        </div>
+      </div>`;
+  }).join('');
+
+  // Animate bars after DOM insert
+  requestAnimationFrame(() => {
+    container.querySelectorAll('[data-target]').forEach(bar => {
+      bar.style.width = bar.dataset.target + '%';
+    });
+  });
+}
+
+function updateRagDisplay(stats) {
+  ['rag-chunks-sidebar','rag-chunks-card'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = stats.total_chunks || '0';
+  });
+  const files = document.getElementById('rag-files-card');
+  if (files) files.textContent = stats.files_indexed || '0';
+}
+
+function animateCount(el, from, to, duration) {
+  const start = performance.now();
+  function step(now) {
+    const progress = Math.min((now - start) / duration, 1);
+    const ease = 1 - Math.pow(1 - progress, 3);
+    el.textContent = Math.round(from + (to - from) * ease).toLocaleString();
+    if (progress < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+//  REVIEWS — /api/reviews
+// ──────────────────────────────────────────────────────────────────────────
+async function loadReviews() {
+  try {
+    const data = await apiFetch(API.reviews);
+    renderReviewList(data.reviews || []);
+    renderActivityLog(data.reviews || []);
+    const badge = document.getElementById('pr-badge');
+    if (badge) badge.textContent = data.total || 0;
+  } catch (err) {
+    console.error('loadReviews failed:', err);
+    const isNetwork = err.message.startsWith('Network Error');
+    document.getElementById('pr-review-list').innerHTML = `
+      <div class="flex items-start gap-3 bg-red-900/20 border border-red-900/40 rounded-xl px-4 py-4 text-xs">
+        <span class="text-red-400 text-base flex-shrink-0">${isNetwork ? '📡' : '⚠️'}</span>
+        <div>
+          <p class="text-red-400 font-semibold mb-0.5">${isNetwork ? 'Network Error' : 'Could not load reviews'}</p>
+          <p class="text-gray-400">${escHtml(err.message)}</p>
+          ${isNetwork ? `<p class="text-gray-500 mt-1">Make sure the Flask server is running, then click <strong class="text-white">Sync</strong>.</p>` : ''}
+        </div>
+      </div>`;
+  }
+}
+
+function renderReviewList(reviews, flashFirst = false) {
+  const container = document.getElementById('pr-review-list');
+  if (!reviews.length) {
+    container.innerHTML = `<div class="text-center py-12 text-gray-500 text-xs">No reviews yet. Trigger a demo review or push a PR.</div>`;
+    return;
+  }
+  container.innerHTML = reviews.map((r, i) => buildPRCard(r, i === 0 && flashFirst)).join('');
+}
+
+function buildPRCard(r, flash = false) {
+  const scoreColor = SCORE_COLOR(r.score);
+  const statusCss  = STATUS_CSS[r.status] || 'bg-surface-700 text-gray-400';
+  const age        = timeAgo(r.timestamp);
+  const initials   = r.author.substring(0, 2).toUpperCase();
+
+  const rev = r.review || {};
+  const bugs        = Array.isArray(rev.bugs)        ? rev.bugs       : (rev.bugs ? [rev.bugs] : []);
+  const suggestions = Array.isArray(rev.suggestions) ? rev.suggestions : (rev.suggestions ? [rev.suggestions] : []);
+
+  const bugHtml = bugs.length
+    ? bugs.map(b => `<li class="flex gap-2"><span class="text-red-400 flex-shrink-0">●</span><span>${escHtml(b)}</span></li>`).join('')
+    : '<li class="text-gray-500">No bugs found.</li>';
+
+  const sugHtml = suggestions.length
+    ? suggestions.map(s => `<li><pre class="bg-surface-900 rounded-lg px-3 py-2 text-xs overflow-x-auto border border-surface-600 text-gray-300">${escHtml(s)}</pre></li>`).join('')
+    : '<li class="text-gray-500">No suggestions.</li>';
+
+  return `
+  <div class="bg-surface-800 border border-surface-600 rounded-xl overflow-hidden card-glow ${flash ? 'new-flash' : ''}">
+    <!-- PR header row — click to expand -->
+    <button class="w-full text-left px-4 py-4 flex items-center gap-3 hover:bg-surface-700/40 transition-colors"
+            onclick="togglePR('${r.id}')">
+      <!-- Avatar -->
+      <div class="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center font-bold text-xs"
+           style="background:${stringToColor(r.author)}22; color:${stringToColor(r.author)}">
+        ${initials}
+      </div>
+      <!-- Info -->
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-brand-400 text-xs font-mono font-semibold">#${r.pr_number}</span>
+          <span class="text-white text-xs font-medium truncate">${escHtml(r.pr_title)}</span>
+        </div>
+        <div class="flex items-center gap-2 mt-1 flex-wrap">
+          <span class="text-gray-500 text-xs">@${r.author}</span>
+          <span class="text-surface-500 text-xs">·</span>
+          <span class="text-gray-500 text-xs">${age}</span>
+          <span class="text-surface-500 text-xs">·</span>
+          <span class="text-xs px-1.5 py-0.5 rounded-full ${statusCss}">${r.status.replace('_',' ')}</span>
+        </div>
+      </div>
+      <!-- Score gauge -->
+      <div class="flex items-center gap-2 flex-shrink-0">
+        <div class="hidden sm:flex flex-col items-end">
+          <span class="text-lg font-bold font-mono" style="color:${scoreColor}">${r.score}</span>
+          <span class="text-xs text-gray-600">/100</span>
+        </div>
+        <div class="w-1.5 h-10 bg-surface-600 rounded-full overflow-hidden hidden sm:block">
+          <div class="w-full rounded-full transition-all duration-700"
+               style="height:${r.score}%; background:${scoreColor}; margin-top:${100-r.score}%"></div>
+        </div>
+        <svg id="chevron-${r.id}" class="pr-chevron w-4 h-4 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+      </div>
+    </button>
+
+    <!-- Expandable review body -->
+    <div id="pr-body-${r.id}" class="pr-body">
+      <div class="border-t border-surface-600 px-4 py-4 space-y-4 text-xs">
+
+        <!-- Tab bar inside card -->
+        <div class="flex gap-1 bg-surface-900/60 rounded-lg p-1">
+          <button onclick="switchReviewTab('${r.id}','bugs')"     id="rtab-${r.id}-bugs"     class="rtab flex-1 text-xs px-2 py-1.5 rounded-md text-gray-400 hover:text-white transition-colors rtab-active">🐛 Bugs</button>
+          <button onclick="switchReviewTab('${r.id}','quality')"  id="rtab-${r.id}-quality"  class="rtab flex-1 text-xs px-2 py-1.5 rounded-md text-gray-400 hover:text-white transition-colors">🏗️ Quality</button>
+          <button onclick="switchReviewTab('${r.id}','commits')"  id="rtab-${r.id}-commits"  class="rtab flex-1 text-xs px-2 py-1.5 rounded-md text-gray-400 hover:text-white transition-colors">📝 Commits</button>
+          <button onclick="switchReviewTab('${r.id}','security')" id="rtab-${r.id}-security" class="rtab flex-1 text-xs px-2 py-1.5 rounded-md text-gray-400 hover:text-white transition-colors">🔒 Security</button>
+          <button onclick="switchReviewTab('${r.id}','suggest')"  id="rtab-${r.id}-suggest"  class="rtab flex-1 text-xs px-2 py-1.5 rounded-md text-gray-400 hover:text-white transition-colors">💡 Tips</button>
+        </div>
+
+        <!-- Review content panels -->
+        <div id="rcontent-${r.id}-bugs" class="review-panel text-gray-300 leading-relaxed">
+          <ul class="space-y-2">${bugHtml}</ul>
+        </div>
+        <div id="rcontent-${r.id}-quality" class="review-panel hidden text-gray-300 leading-relaxed">
+          ${escHtml(rev.code_quality || 'No quality feedback available.')}
+        </div>
+        <div id="rcontent-${r.id}-commits" class="review-panel hidden text-gray-300 leading-relaxed">
+          ${escHtml(rev.conventional_commits || 'No commit analysis available.')}
+        </div>
+        <div id="rcontent-${r.id}-security" class="review-panel hidden text-gray-300 leading-relaxed">
+          ${escHtml(rev.security || 'No security findings.')}
+        </div>
+        <div id="rcontent-${r.id}-suggest" class="review-panel hidden">
+          <ul class="space-y-2">${sugHtml}</ul>
+        </div>
+
+        <!-- Branch info footer -->
+        <div class="flex items-center gap-2 pt-2 border-t border-surface-600 text-gray-600">
+          <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+          <code class="text-gray-500">${r.head_branch}</code>
+          <span>→</span>
+          <code class="text-gray-500">${r.base_branch}</code>
+          <span class="ml-auto text-gray-600">${r.repo}</span>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function togglePR(id) {
+  const body    = document.getElementById('pr-body-' + id);
+  const chevron = document.getElementById('chevron-' + id);
+  if (!body) return;
+  const isOpen = body.classList.contains('open');
+  body.classList.toggle('open', !isOpen);
+  chevron.classList.toggle('open', !isOpen);
+}
+
+function switchReviewTab(prId, tab) {
+  const tabs = ['bugs','quality','commits','security','suggest'];
+  tabs.forEach(t => {
+    const btn = document.getElementById(`rtab-${prId}-${t}`);
+    const pnl = document.getElementById(`rcontent-${prId}-${t}`);
+    if (btn) btn.classList.toggle('rtab-active', t === tab);
+    if (pnl) pnl.classList.toggle('hidden', t !== tab);
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+//  ACTIVITY LOG
+// ──────────────────────────────────────────────────────────────────────────
+const ACTIVITY_EVENTS = [
+  { type: 'ai',   color: '#34d399', label: '🤖', event: 'Doc health scan complete',  sub: 'Score: 74/100 · 12 files need docstrings',  tag: 'Scheduled',      tagCss: 'bg-surface-700 text-gray-400' },
+  { type: 'merge',color: '#a78bfa', label: 'A',  event: 'alee merged PR #138',        sub: 'fix: resolve null pointer in user deletion', tag: 'Merged',         tagCss: 'bg-brand-900/40 text-brand-400' },
+  { type: 'push', color: '#f87171', label: 'M',  event: 'mchen pushed 3 commits → PR #139', sub: 'refactor: migrate DB layer',         tag: 'Re-review',      tagCss: 'bg-yellow-900/40 text-yellow-400' },
+  { type: 'ai',   color: '#34d399', label: '🤖', event: 'RepoPulse AI reviewed PR #141', sub: 'Score 92/100 · No bugs found',          tag: 'Review Posted',  tagCss: 'bg-brand-900/40 text-brand-400' },
+];
+
+function renderActivityLog(reviews) {
+  const log = document.getElementById('activity-log');
+  if (!log) return;
+
+  // Build from real review data + static events
+  const items = [...reviews.slice(0, 3).map(r => ({
+    initials: r.author.substring(0,2).toUpperCase(),
+    color:    stringToColor(r.author),
+    event:    `${r.author} opened PR #${r.pr_number}`,
+    sub:      r.pr_title,
+    age:      timeAgo(r.timestamp),
+    tag:      'AI Review Triggered',
+    tagCss:   'bg-purple-900/40 text-purple-400',
+  })), ...ACTIVITY_EVENTS.map(e => ({
+    initials: e.label,
+    color:    e.color,
+    event:    e.event,
+    sub:      e.sub,
+    age:      timeAgo(Date.now()/1000 - Math.random()*86400),
+    tag:      e.tag,
+    tagCss:   e.tagCss,
+  }))];
+
+  log.innerHTML = items.map(item => `
+    <li class="flex items-start gap-3 px-4 py-3 hover:bg-surface-700/30 transition-colors">
+      <div class="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center font-bold text-xs mt-0.5"
+           style="background:${item.color}22; color:${item.color}">
+        ${item.initials}
+      </div>
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-xs font-medium text-white truncate">${escHtml(item.event)}</p>
+          <span class="text-xs text-gray-500 flex-shrink-0">${item.age}</span>
+        </div>
+        <p class="text-xs text-gray-500 mt-0.5 truncate">${escHtml(item.sub)}</p>
+        <span class="inline-block mt-1.5 text-xs px-1.5 py-0.5 rounded ${item.tagCss}">${item.tag}</span>
+      </div>
+    </li>`).join('');
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+//  DEMO REVIEW — /api/demo-review
+// ──────────────────────────────────────────────────────────────────────────
+async function triggerDemoReview() {
+  showToast('Triggering demo review…', 'loading');
+  try {
+    const data = await apiFetch(API.demoReview, { method: 'POST' });
+    showToast(`Demo review created: PR #${data.review.pr_number}`, 'success');
+
+    // Reload reviews and flash the new entry
+    const reviews = await apiFetch(API.reviews);
+    renderReviewList(reviews.reviews || [], true);
+    renderActivityLog(reviews.reviews || []);
+    const badge = document.getElementById('pr-badge');
+    if (badge) badge.textContent = reviews.total || 0;
+
+    // Switch to reviews tab and auto-open newest card
+    showTab('reviews');
+    setTimeout(() => togglePR(reviews.reviews[0]?.id), 400);
+
+  } catch (err) {
+    const msg = err.message.startsWith('Network Error')
+      ? '📡 Network Error: Server unreachable. Is Flask running?'
+      : 'Demo review failed: ' + err.message;
+    showToast(msg, 'error');
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+//  INGEST — /api/ingest
+// ──────────────────────────────────────────────────────────────────────────
+async function triggerIngest() {
+  showToast('Rebuilding knowledge base…', 'loading');
+  const syncIcon = document.getElementById('sync-icon');
+  if (syncIcon) syncIcon.style.animation = 'spin 1s linear infinite';
+
+  try {
+    const data = await apiFetch(API.ingest, { method: 'POST' });
+    showToast(`Knowledge base ready: ${data.chunks_indexed} chunks indexed`, 'success');
+    if (data.index_stats) updateRagDisplay(data.index_stats);
+  } catch (err) {
+    const msg = err.message.startsWith('Network Error')
+      ? '📡 Network Error: Cannot reach server to rebuild index.'
+      : 'Ingest failed: ' + err.message;
+    showToast(msg, 'error');
+  } finally {
+    if (syncIcon) syncIcon.style.animation = '';
+  }
+}
+
+async function refreshAll() {
+  const icon = document.getElementById('sync-icon');
+  if (icon) icon.style.animation = 'spin 0.8s linear infinite';
+  try {
+    await Promise.all([loadStats(), loadReviews()]);
+    showToast('Dashboard refreshed', 'success');
+  } catch (err) {
+    // Individual loaders handle their own errors — this catch is a safety net
+    showToast(err.message.startsWith('Network Error') ? err.message : 'Refresh failed', 'error');
+  } finally {
+    if (icon) icon.style.animation = '';
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+//  CHAT — /api/chat
+// ──────────────────────────────────────────────────────────────────────────
+let _chatBusy = false;
+
+function handleChatKey(event) {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    sendChatMessage();
+  }
+}
+
+function sendSuggestion(btn) {
+  const input = document.getElementById('chat-input');
+  input.value = btn.textContent;
+  // Hide suggestions after first use
+  document.getElementById('chat-suggestions').style.display = 'none';
+  sendChatMessage();
+}
+
+function autoResize(textarea) {
+  textarea.style.height = 'auto';
+  textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+}
+
+async function sendChatMessage() {
+  if (_chatBusy) return;
+  const input   = document.getElementById('chat-input');
+  const sendBtn = document.getElementById('chat-send-btn');
+  const question = input.value.trim();
+  if (!question) return;
+
+  // Clear and disable input
+  input.value = '';
+  input.style.height = 'auto';
+  input.disabled = true;
+  sendBtn.disabled = true;
+  _chatBusy = true;
+
+  // Hide suggestions permanently once user has typed
+  document.getElementById('chat-suggestions').style.display = 'none';
+
+  // Append user message
+  appendChatMessage('user', question);
+
+  // Append thinking indicator
+  const thinkingId = 'thinking-' + Date.now();
+  appendThinking(thinkingId);
+
+  // Update status
+  const statusEl = document.getElementById('docbot-status');
+  if (statusEl) statusEl.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-yellow-400 inline-block"></span> Thinking…`;
+
+  try {
+    const data = await apiFetch(API.chat, {
+      method: 'POST',
+      body: JSON.stringify({ question }),
+    });
+
+    removeThinking(thinkingId);
+    appendChatMessage('bot', data.answer, data.sources);
+
+  } catch (err) {
+    removeThinking(thinkingId);
+
+    // Build a user-friendly error bubble based on the failure type
+    let errMsg;
+    if (err.message.startsWith('Network Error')) {
+      errMsg = '📡 **Network Error: Could not reach the server.**\n\nMake sure Flask is running, then try again.';
+    } else if (err.message.includes('503') || err.message.toLowerCase().includes('not ready')) {
+      errMsg = '⚠️ **Knowledge base not ready.**\n\nClick **Sync Knowledge Base** in the sidebar to build the RAG index, then ask again.';
+    } else if (err.message.includes('400')) {
+      errMsg = '⚠️ **Bad request.** Your question could not be processed. Please try rephrasing it.';
+    } else {
+      errMsg = `❌ **Error:** ${err.message}`;
+    }
+
+    appendChatMessage('bot', errMsg);
+    showToast(err.message.startsWith('Network Error') ? err.message : 'Chat error: ' + err.message, 'error');
+
+  } finally {
+    input.disabled = false;
+    sendBtn.disabled = false;
+    input.focus();
+    _chatBusy = false;
+    if (statusEl) statusEl.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-brand-400 inline-block" style="animation:statusPulse 2s ease-in-out infinite"></span> Ready`;
+  }
+}
+
+function appendChatMessage(role, text, sources = []) {
+  const messages = document.getElementById('chat-messages');
+  const isUser = role === 'user';
+
+  const sourcesHtml = sources.length
+    ? `<div class="flex flex-wrap gap-1.5 mt-3 pt-2.5 border-t border-surface-600/50">
+         <span class="text-xs text-gray-600">Sources:</span>
+         ${sources.map(s => `<code class="text-xs bg-surface-800 text-gray-400 px-1.5 py-0.5 rounded border border-surface-600">${escHtml(s)}</code>`).join('')}
+       </div>`
+    : '';
+
+  // Render markdown for bot messages
+  const bodyHtml = isUser
+    ? `<p>${escHtml(text)}</p>`
+    : marked.parse(text || '');
+
+  const html = `
+    <div class="chat-msg ${isUser ? 'msg-user flex justify-end' : 'msg-bot flex items-start gap-3'}">
+      ${!isUser ? `<div class="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-500 to-brand-600 flex-shrink-0 flex items-center justify-center text-white text-xs font-bold">AI</div>` : ''}
+      <div class="bubble px-4 py-3 text-xs leading-relaxed ${isUser ? 'max-w-sm' : 'max-w-2xl'}">
+        ${!isUser ? '<p class="text-brand-400 font-semibold text-xs mb-2">RepoPulse Doc-Bot</p>' : ''}
+        ${bodyHtml}
+        ${sourcesHtml}
+      </div>
+    </div>`;
+
+  messages.insertAdjacentHTML('beforeend', html);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function appendThinking(id) {
+  const messages = document.getElementById('chat-messages');
+  messages.insertAdjacentHTML('beforeend', `
+    <div id="${id}" class="chat-msg msg-bot flex items-start gap-3">
+      <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-500 to-brand-600 flex-shrink-0 flex items-center justify-center text-white text-xs font-bold">AI</div>
+      <div class="bubble px-4 py-3 text-xs">
+        <span class="thinking-dot text-brand-400">●</span>
+        <span class="thinking-dot text-brand-400">●</span>
+        <span class="thinking-dot text-brand-400">●</span>
+      </div>
+    </div>`);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function removeThinking(id) {
+  document.getElementById(id)?.remove();
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+//  UTILITIES
+// ──────────────────────────────────────────────────────────────────────────
+function escHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function timeAgo(ts) {
+  const seconds = Math.floor(Date.now() / 1000 - ts);
+  if (seconds < 60)   return 'just now';
+  if (seconds < 3600) return `${Math.floor(seconds/60)}m ago`;
+  if (seconds < 86400)return `${Math.floor(seconds/3600)}h ago`;
+  return `${Math.floor(seconds/86400)}d ago`;
+}
+
+// Deterministic colour from a string (author name → avatar bg)
+function stringToColor(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue},60%,65%)`;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+//  SPIN KEYFRAME (injected for sync button)
+// ──────────────────────────────────────────────────────────────────────────
+(function injectSpin() {
+  const style = document.createElement('style');
+  style.textContent = '@keyframes spin { to { transform: rotate(360deg); } } .rtab-active { background:#21262d; color:#34d399; }';
+  document.head.appendChild(style);
+})();
+
+// ──────────────────────────────────────────────────────────────────────────
+//  INIT — run on page load
+// ──────────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+  // Load data in parallel
+  await Promise.allSettled([loadStats(), loadReviews()]);
+
+  // Poll for live updates every 30s
+  setInterval(() => Promise.allSettled([loadStats(), loadReviews()]), 30_000);
+});
+</script>
+
+</body>
+</html>
